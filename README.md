@@ -43,6 +43,8 @@ Several different version is seperately saved with different file name for convi
 - [ x ] visualization_0414.py: add a reset button for the mesh QThread.
 - [ x ] visualization_button_layout.py: re-arrange the buttons' layout and add the button of changing webcam id.
 - [  ] Sovling the delay accumulation and stop problem immediately.
+- [  ] Add more background images for different cameras.
+- [  ] Re-arrange the botton layout.
 
 # Reference
 Thanks to these below reporitories.   
