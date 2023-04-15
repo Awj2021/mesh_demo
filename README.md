@@ -38,6 +38,12 @@ python visualization.py
 ```
 If you want to run the older versions of code, you could try to run the visualization_bak files, e.g., `visualization_bak405.py`. But I cannot guarantee that these codes will work correctly.
 
+# Version Recording
+Several different version is seperately saved with different file name for convient showing. Here recoading the file name only and do not upload the corresponding files.  
+- [ x ] visualization_0414.py: add a reset button for the mesh QThread.
+- [ x ] visualization_button_layout.py: re-arrange the buttons' layout and add the button of changing webcam id.
+- [  ] Sovling the delay accumulation and stop problem immediately.
+
 # Reference
 Thanks to these below reporitories.   
 [ROMP](https://github.com/Arthur151/ROMP)  
