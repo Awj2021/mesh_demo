@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import QWidget, QApplication, QLabel, QVBoxLayout, QPushBut
 from PyQt6.QtGui import QPixmap, QImage
 import sys
 import cv2
-from PyQt6.QtCore import pyqtSignal, pyqtSlot, Qt, QThread, QSize
+from PyQt6.QtCore import pyqtSignal, pyqtSlot, Qt, QThread, QSize, QMutex, QObject
 import numpy as np
 import os
 import ipdb
@@ -15,14 +15,59 @@ from queue import Queue
 from imutils.video import FPS
 import ffmpeg
 
+import faulthandler
+faulthandler.enable()
+import time
+import subprocess as sp
+import queue
+
 
 ############################ 使用ffmpeg的方式处理视频 #######################################
+class RTSPReader(QThread):
+
+    def __init__(self, rtsp_url, frame_buffer):
+        super().__init__()
+        self.rtsp_url = rtsp_url
+        self.frame_buffer = frame_buffer
+        self.video_height = 720
+        self.video_width = 1280
+
+    def run(self):
+        ffmpeg_cmd = [
+         "ffmpeg",
+         "-rtsp_transport", "tcp",
+         "-fflags", "nobuffer", 
+         "-flags", "low_delay",
+         "-i", self.rtsp_url, 
+         "-f", "rawvideo",
+         "-pix_fmt", "rgb24",
+         "-y", "pipe:1"
+         ]
+
+        ffmpeg_process = sp.Popen(ffmpeg_cmd, stdout=sp.PIPE)
+        
+        while True:
+            time_1 = time.time()
+            raw_frame = ffmpeg_process.stdout.read(self.video_height * self.video_width * 3)
+            if len(raw_frame) != self.video_height * self.video_width * 3:
+                continue
+            
+            try:
+                self.frame_buffer.put(raw_frame, block=False)
+            except queue.Full: 
+                print("Buffer is full\n *\n *\n *\n *\n *\n *\n *\n *\n *\n *\n")
+                with self.frame_buffer.mutex:
+                    self.frame_buffer.queue.clear()
+
+            time_2 = time.time()
+            print('RTSPReader fps' + str(1 / (time_2 - time_1)))
+
 class VideoProcessThread(QThread):
     """读取需要处理的Video."""
     change_pixmap_signal = pyqtSignal(QPixmap, QPixmap)
     bg_singal = pyqtSignal(str)
 
-    def __init__(self, webcam_id, width, height, bg_dir):
+    def __init__(self, webcam_id, width, height, bg_dir, frame_buffer):
         super().__init__()
         self._run_flag = True
         self.display_height = height
@@ -38,19 +83,9 @@ class VideoProcessThread(QThread):
         print("fps: {}".format(self.cap_info['r_frame_rate']))
         self.video_width = self.cap_info['width']           # 获取视频流的宽度
         self.video_height = self.cap_info['height']         # 获取视频流的高度
+        self.mutex = QMutex()
+        self.frame_buffer = frame_buffer
 
-        
-        self.process1 = (
-            ffmpeg
-            .input(
-                self.webcam_id,
-                rtsp_transport="tcp",
-                fflags="nobuffer",
-                flags="low_delay")
-            .output('pipe:', format='rawvideo', pix_fmt='rgb24')
-            .run_async(pipe_stdout=True, pipe_stderr=True)
-        )
-    
     def bg_check(self):
         """check the if the button was pressed. if pressed, transfer the background image dir."""
         if self.bg_dir != None and self.bg_dir != self.ori_dir:    # 仅仅当不为空且和上一次背景路径不相同的时候，输出。
@@ -58,122 +93,49 @@ class VideoProcessThread(QThread):
             self.ori_dir = self.bg_dir
             print("==== Reloading the background. ====")
 
-    def image_process(self, cv_img):
-        """Return the mesh image. And add the mesh image on the background image."""
-        cv_img = cv2.resize(cv_img, (self.display_width, self.display_height))
-        outputs = romp_model(cv_img)
-        h, w, ch = cv_img.shape
-        bytes_per_line = ch * w
+    def run(self):
+        while True:
+            time_1 = time.time()
+            frame = self.frame_buffer.get()
+            # print('get')
+            frame = np.frombuffer(frame, dtype=np.uint8)
+            cv_img = frame.reshape((self.video_height, self.video_width, 3))
+            """Return the mesh image. And add the mesh image on the background image."""
+            cv_img = cv2.resize(cv_img, (self.display_width, self.display_height))
+            outputs = romp_model(cv_img)
+            h, w, ch = cv_img.shape
+            bytes_per_line = ch * w
 
-        #### 处理背景图像 ###
-        #### 首先要进行抠图，
-        cv_img_mesh = cv2.cvtColor(cv2.resize(outputs['rendered_image'],(self.display_width, self.display_height)), cv2.COLOR_BGR2RGB)
-        mesh_grey =  cv2.cvtColor(cv_img_mesh, cv2.COLOR_BGR2GRAY)              # mesh部分为白色，背景为黑色。
-        ret, mesh_mask = cv2.threshold(mesh_grey, 1, 255, cv2.THRESH_BINARY)    # mesh部分为白色，背景为黑色
-        maskInv = cv2.bitwise_not(mesh_mask)
+            #### 处理背景图像 ###
+            #### 首先要进行抠图，
+            cv_img_mesh = cv2.cvtColor(cv2.resize(outputs['rendered_image'],(self.display_width, self.display_height)), cv2.COLOR_BGR2RGB)
+            mesh_grey =  cv2.cvtColor(cv_img_mesh, cv2.COLOR_BGR2GRAY)              # mesh部分为白色，背景为黑色。
+            ret, mesh_mask = cv2.threshold(mesh_grey, 1, 255, cv2.THRESH_BINARY)    # mesh部分为白色，背景为黑色
+            maskInv = cv2.bitwise_not(mesh_mask)
 
-        mesh_bg = cv2.bitwise_and(self.bg_image, self.bg_image, mask = maskInv)             # 掩码.
-        mesh_fg = cv2.bitwise_and(cv_img_mesh, cv_img_mesh, mask = mesh_mask)               
+            mesh_bg = cv2.bitwise_and(self.bg_image, self.bg_image, mask = maskInv)             # 掩码.
+            mesh_fg = cv2.bitwise_and(cv_img_mesh, cv_img_mesh, mask = mesh_mask)               
 
-        combine_mesh = cv2.add(mesh_bg, mesh_fg)
+            combine_mesh = cv2.add(mesh_bg, mesh_fg)
 
-        cv_img = cv2.cvtColor(cv_img, cv2.COLOR_BGR2RGB)
 
-        p_ori_convert = QtGui.QImage(cv_img.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
-        p_mesh_convert = QtGui.QImage(combine_mesh.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
 
-        p_ori = p_ori_convert.scaled(self.display_width, self.display_height, Qt.AspectRatioMode.KeepAspectRatio)
-        p_mesh = p_mesh_convert.scaled(self.display_width, self.display_height, Qt.AspectRatioMode.KeepAspectRatio)
-        return p_ori, p_mesh
 
-    def run(self):   # 相当于update. 直接从Queue中读取数据。
-        """QThread main function."""
-        while self._run_flag:
-            self.bg_check()
-            in_bytes = self.process1.stdout.read(self.video_height * self.video_width * 3)     # 读取图片,和cv读取height, width的前后顺序不一样
-            if not in_bytes:
-                continue
-            # tranfer to ndarry.
-            in_frame = (
-                np
-                .frombuffer(in_bytes, np.uint8)
-                .reshape([self.video_height, self.video_width, 3])
-            )
-            frame = cv2.cvtColor(in_frame, cv2.COLOR_RGB2BGR)  # 转成BGR
-            p_ori, p_mesh = self.image_process(frame)
+            p_ori_convert = QtGui.QImage(cv_img.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
+            p_mesh_convert = QtGui.QImage(combine_mesh.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
+            # p_mesh_convert = QtGui.QImage(cv_img.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
+            p_ori = p_ori_convert.scaled(self.display_width, self.display_height, Qt.AspectRatioMode.KeepAspectRatio)
+            p_mesh = p_mesh_convert.scaled(self.display_width, self.display_height, Qt.AspectRatioMode.KeepAspectRatio)
+            # return p_ori, p_mesh
             self.change_pixmap_signal.emit(QPixmap.fromImage(p_ori), QPixmap.fromImage(p_mesh))
-            self.process1.stdout.flush()
-        # self.process1.kill()
-            
-    def stop(self):
-        """Sets run flag to False and waits for thread to finish"""
-        self._run_flag = False
-        self.wait()
+            # self.frame_buffer.task_done()
+            time_2 = time.time()
+            print('run fps: ' + str(1 / (time_2 - time_1)))
+
     
     @pyqtSlot(str)
     def accept(self, bg_dir):
         self.bg_dir = bg_dir
-
-# TODO: 其他的视频，因为visualization的效果有点花，因此仍旧使用ffmpeg的方式进行展示。
-# class VideoThread(QThread):
-#     """读取需要处理的Video."""
-#     change_pixmap_signal = pyqtSignal(QPixmap)
-
-#     def __init__(self, webcam_id, width, height):
-#         super().__init__()
-#         self._run_flag = True
-#         self.display_height = height
-#         self.display_width = width
-#         self.count = 0
-#         self.webcam_id = webcam_id
-
-#         self.probe = ffmpeg.probe(self.webcam_id)
-#         self.cap_info = next(x for x in self.probe['streams'] if x['codec_type'] == 'video')
-#         self.video_width = self.cap_info['width']           # 获取视频流的宽度
-#         self.video_height = self.cap_info['height']         # 获取视频流的高度
-        
-#         self.process1 = (
-#             ffmpeg
-#             .input(
-#                 self.webcam_id,
-#                 rtsp_transport="tcp",
-#                 fflags="nobuffer",
-#                 flags="low_delay")
-#             .output('pipe:', format='rawvideo', pix_fmt='rgb24')
-#             .run_async(pipe_stdout=True)
-#         )
-    
-#     def image_process(self, cv_img):
-#         rgb_image = cv2.cvtColor(cv2.resize(cv_img, (self.display_width, self.display_height)), cv2.COLOR_BGR2RGB)
-#         h, w, ch = rgb_image.shape
-#         bytes_per_line = ch * w
-#         convert_to_Qt_format = QtGui.QImage(rgb_image.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
-#         p = convert_to_Qt_format.scaled(self.display_width, self.display_height, Qt.AspectRatioMode.KeepAspectRatio)
-#         return p
-
-#     def run(self):
-#         while self._run_flag:
-#             in_bytes = self.process1.stdout.read(self.video_width * self.video_height * 3)     # 读取图片
-#             if not in_bytes:
-#                 continue
-
-#             in_frame = (
-#                 np
-#                 .frombuffer(in_bytes, np.uint8)
-#                 .reshape([self.video_height, self.video_width, 3])
-#             )
-#             frame = cv2.cvtColor(in_frame, cv2.COLOR_RGB2BGR)  # 转成BGR
-#             p_ori = self.image_process(frame)
-#             self.change_pixmap_signal.emit(QPixmap.fromImage(p_ori))
-#             self.process1.stdout.flush()
-
-#         self.process1.kill()
-
-            
-#     def stop(self):
-#         """Sets run flag to False and waits for thread to finish"""
-#         self._run_flag = False
-
 
 
 class VideoThread(QThread):
@@ -186,8 +148,10 @@ class VideoThread(QThread):
         self.webcam_id = webcam_id
         self.display_height = height
         self.display_width = width
+        self.mutex = QMutex()    
 
     def run(self):
+        self.mutex.lock()
         cap = cv2.VideoCapture(self.webcam_id)
         while self._run_flag:
             ret, cv_img = cap.read()
@@ -198,7 +162,7 @@ class VideoThread(QThread):
                 convert_to_Qt_format = QtGui.QImage(rgb_image.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
                 p = convert_to_Qt_format.scaled(self.display_width, self.display_height, Qt.AspectRatioMode.KeepAspectRatio)
                 self.change_pixmap_signal.emit(QPixmap.fromImage(p))
-
+            self.mutex.unlock()
         cap.release()
 
     def stop(self):
@@ -215,7 +179,7 @@ class App(QWidget):
 
         # video ids.
         self.webcam_ids = [
-            "rtsp://admin:1.2.3.4.5@192.168.1.16/Streaming/Channels/101",
+            "rtsp://admin:1.2.3.4.5@192.168.1.6/Streaming/Channels/101",
             "rtsp://admin:1.2.3.4.5@192.168.1.3/Streaming/Channels/101",
             "rtsp://admin:1.2.3.4.5@192.168.1.10/Streaming/Channels/101",
             "rtsp://admin:1.2.3.4.5@192.168.1.11/Streaming/Channels/101",
@@ -223,6 +187,7 @@ class App(QWidget):
             "rtsp://admin:1.2.3.4.5@192.168.1.13/Streaming/Channels/101",
             "rtsp://admin:1.2.3.4.5@192.168.1.14/Streaming/Channels/101",
             "rtsp://admin:1.2.3.4.5@192.168.1.15/Streaming/Channels/101",
+            "rtsp://admin:1.2.3.4.5@192.168.1.17/Streaming/Channels/101"
         ]
 
         # the size of showing window.
@@ -284,10 +249,13 @@ class App(QWidget):
         self.video_8.resize(self.display_width_small, self.display_height_small)
 
         # Background Choose Button.
-        self.bg1 = QPushButton("Scene Trasnsfer: Cartoon", self)
-        self.bg2 = QPushButton("Scene Trasnsfer: Science_Fiction", self)
-        self.bg3 = QPushButton("Scene Trasnsfer: Steampunk", self)
-        self.bg4 = QPushButton("Scene Trasnsfer: Cyperpunk", self)
+        self.bg1 = QPushButton("Scene Transfer: Cartoon", self)
+        self.bg2 = QPushButton("Scene Transfer: Science_Fiction", self)
+        self.bg3 = QPushButton("Scene Transfer: Steampunk", self)
+        self.bg4 = QPushButton("Scene Transfer: Cyperpunk", self)
+
+        self.reset = QPushButton("RESET", self)
+        self.reset.setStyleSheet('QPushButton {background-color: #A3C1DA; color: red;}')
 
         # TODO: Button Style Setting.
         self.bg1.setIcon(QtGui.QIcon(self.bg_img_dirs['Cartoon'][0]))   # 添加路径
@@ -314,6 +282,7 @@ class App(QWidget):
         self.bg3.clicked.connect(self.background_bg3_change)
         self.bg4.clicked.connect(self.background_bg4_change)
 
+        # self.reset.clicked.connect(self.thread_reset)
         layout = QGridLayout()
 
         layout.addWidget(self.ori_webcam, 0, 0, 1, 4)
@@ -333,16 +302,24 @@ class App(QWidget):
         layout.addWidget(self.bg2, 2, 2, 1, 2)
         layout.addWidget(self.bg3, 2, 4, 1, 2)
         layout.addWidget(self.bg4, 2, 6, 1, 2)
+
+        layout.addWidget(self.reset, 3, 0, 1, 8)
+
         self.setLayout(layout)
+
+
+        self.frame_buffer = Queue(maxsize=5)
         
+        self.rtsp_reader = RTSPReader(self.webcam_ids[0], self.frame_buffer)
 
-        self.thread_mesh = VideoProcessThread(self.webcam_ids[0], self.display_width, self.display_height, self.bg_modify_dir)
-        self.thread_mesh.change_pixmap_signal.connect(self.update_image_mesh)
-        self.main_singal.connect(self.thread_mesh.accept)
-        self.thread_mesh.start()
-
+        self.vpt = VideoProcessThread(self.webcam_ids[0], self.display_width, self.display_height, self.bg_modify_dir, self.frame_buffer)
+        self.vpt.change_pixmap_signal.connect(self.update_image_mesh)
+        self.main_singal.connect(self.vpt.accept)        
+        self.rtsp_reader.start()
+        self.vpt.start()
+        
         ### Others.
-        self.thread_1 = VideoThread(self.webcam_ids[0], self.display_width_small, self.display_height_small)         # 应该传入IP. list
+        self.thread_1 = VideoThread(self.webcam_ids[-1], self.display_width_small, self.display_height_small)         # 应该传入IP. list
         self.thread_1.change_pixmap_signal.connect(self.update_image_1)
         self.thread_1.start()
 
@@ -379,7 +356,7 @@ class App(QWidget):
     def update_image_mesh(self, cv_img_ori, cv_img_mesh):
         self.ori_webcam.setPixmap(cv_img_ori)
         self.video_mesh.setPixmap(cv_img_mesh)
-        self.main_singal.emit(self.bg_modify_dir)
+        QApplication.processEvents()
 
 
     @pyqtSlot(QPixmap)
@@ -425,21 +402,21 @@ class App(QWidget):
 
     def background_bg1_change(self):
         """由button跳转, 选择不同的background"""
-        self.bg_modify_dir = random.choice(self.bg_img_dirs['Cartoon'])
+        self.main_singal.emit(random.choice(self.bg_img_dirs['Cartoon']))
 
     def background_bg2_change(self):
         """由button跳转, 选择不同的background"""
-        self.bg_modify_dir = random.choice(self.bg_img_dirs['Science_Fiction'])
+        self.main_singal.emit(random.choice(self.bg_img_dirs['Science_Fiction']))
     
     def background_bg3_change(self):
         """由button跳转, 选择不同的background"""
-        self.bg_modify_dir = random.choice(self.bg_img_dirs['Steampunk'])
+        self.main_singal.emit(random.choice(self.bg_img_dirs['Steampunk']))
 
     def background_bg4_change(self):
         """由button跳转, 选择不同的background"""
-        self.bg_modify_dir = random.choice(self.bg_img_dirs['Cyberpunk'])
+        self.main_singal.emit(random.choice(self.bg_img_dirs['Cyberpunk']))
 
-        
+
 if __name__=="__main__":
     settings = romp.main.default_settings
     settings.calc_smpl = True
