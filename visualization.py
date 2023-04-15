@@ -68,19 +68,20 @@ class RTSPReader(QThread):
     
     @pyqtSlot(str)
     def url_update(self, url_):
-        self.rtsp_url = url_
-        self.ffmpeg_cmd = [
-            "ffmpeg",
-            "-rtsp_transport", "tcp",
-            "-fflags", "nobuffer", 
-            "-flags", "low_delay",
-            "-i", self.rtsp_url, 
-            "-f", "rawvideo",
-            "-pix_fmt", "rgb24",
-            "-y", "pipe:1"
-         ]
-        self.ffmpeg_process = sp.Popen(self.ffmpeg_cmd, stdout=sp.PIPE)
-        self.url_flag = True
+        if url_ != self.rtsp_url:
+            self.rtsp_url = url_
+            self.ffmpeg_cmd = [
+                "ffmpeg",
+                "-rtsp_transport", "tcp",
+                "-fflags", "nobuffer", 
+                "-flags", "low_delay",
+                "-i", self.rtsp_url, 
+                "-f", "rawvideo",
+                "-pix_fmt", "rgb24",
+                "-y", "pipe:1"
+            ]
+            self.ffmpeg_process = sp.Popen(self.ffmpeg_cmd, stdout=sp.PIPE)
+            self.url_flag = True
 
 
 class VideoProcessThread(QThread):
