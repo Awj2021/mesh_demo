@@ -1,6 +1,6 @@
 # Introduction
 The is a simple, but a real-time demo. We mainly use the PyQt5 to conduct an interactive interface, which shows some original video streams captured from different camera ids and people's mesh image added on different style's backgrounds. When the different style's button is pressed, these background images could be changed.  
-  
+
 **Key components**
 - Two big windows, one is used for capturing video from a camera and the other is used for showing the processed video stream.   
 - Eight small windows showing different videos from different monitors.   
@@ -10,6 +10,7 @@ The is a simple, but a real-time demo. We mainly use the PyQt5 to conduct an int
 - FFMPEG: Getting video stream in a real-time manner. 
 - ROMP: processing one frame and return a mesh image. 
 
+# Performance
 
 # Environment  
 Reproduce the environment: (ONLY using the environment.yml file.)  
@@ -42,7 +43,10 @@ If you want to run the older versions of code, you could try to run the visualiz
 Several different version is seperately saved with different file name for convient showing. Here recoading the file name only and do not upload the corresponding files.  
 - [ x ] visualization_0414.py: add a reset button for the mesh QThread.
 - [ x ] visualization_button_layout.py: re-arrange the buttons' layout and add the button of changing webcam id.
-- [  ] Sovling the delay accumulation and stop problem immediately.
+- [ x ] Sovling the delay accumulation and stop problem immediately.
+- [  ] Add more background images for different cameras.
+- [  ] Re-arrange the botton layout.
+- [  ] Add more images for showing on the README.md.
 
 # Reference
 Thanks to these below reporitories.   
