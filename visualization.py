@@ -25,7 +25,7 @@ import json
 
 ############################ 使用ffmpeg的方式处理视频 #######################################
 class RTSPReader(QThread):
-    url_signal = pyqtSignal(str)
+    # url_signal = pyqtSignal(str)
     def __init__(self, rtsp_url, frame_buffer):
         super().__init__()
         self.rtsp_url = rtsp_url
@@ -43,7 +43,7 @@ class RTSPReader(QThread):
             "-y", "pipe:1"
          ]
         self.ffmpeg_process = sp.Popen(self.ffmpeg_cmd, stdout=sp.PIPE)
-        self.url_flag = False
+        # self.url_flag = False
 
     def run(self):
         while True:
@@ -57,38 +57,35 @@ class RTSPReader(QThread):
                 print("Buffer is full\n *\n *\n *\n *\n *\n *\n *\n *\n *\n *\n")
                 with self.frame_buffer.mutex:
                     self.frame_buffer.queue.clear()
-            if self.url_flag:
-                with self.frame_buffer.mutex:
-                    self.frame_buffer.queue.clear()
-                self.url_flag = False
 
             time_2 = time.time()
             print('RTSPReader fps' + str(1 / (time_2 - time_1)))
     
-    @pyqtSlot(str)
-    def url_update(self, url_):
-        if url_ != self.rtsp_url:
-            self.rtsp_url = url_
-            self.ffmpeg_cmd = [
-                "ffmpeg",
-                "-rtsp_transport", "tcp",
-                "-fflags", "nobuffer", 
-                "-flags", "low_delay",
-                "-i", self.rtsp_url, 
-                "-f", "rawvideo",
-                "-pix_fmt", "rgb24",
-                "-y", "pipe:1"
-            ]
-            self.ffmpeg_process = sp.Popen(self.ffmpeg_cmd, stdout=sp.PIPE)
-            self.url_flag = True
+    # @pyqtSlot(str)
+    # def url_update(self, url_):
+    #     if url_ != self.rtsp_url:
+    #         self.rtsp_url = url_
+    #         self.ffmpeg_cmd = [
+    #             "ffmpeg",
+    #             "-rtsp_transport", "tcp",
+    #             "-fflags", "nobuffer", 
+    #             "-flags", "low_delay",
+    #             "-i", self.rtsp_url, 
+    #             "-f", "rawvideo",
+    #             "-pix_fmt", "rgb24",
+    #             "-y", "pipe:1"
+    #         ]
+    #         self.ffmpeg_process = sp.Popen(self.ffmpeg_cmd, stdout=sp.PIPE)
+    #         self.url_flag = True
 
 
 class VideoProcessThread(QThread):
     """读取需要处理的Video."""
     change_pixmap_signal = pyqtSignal(QPixmap, QPixmap)
     bg_singal = pyqtSignal(str)
+    camera_signal = pyqtSignal(str)
 
-    def __init__(self, width, height, bg_dir, frame_buffer):
+    def __init__(self, width, height, bg_dir, frame_buffer_4, frame_buffer_8, frame_buffer_11, frame_buffer_16):
         super().__init__()
         self._run_flag = True
         self.display_height = height
@@ -100,7 +97,13 @@ class VideoProcessThread(QThread):
 
         self.video_width = 1280
         self.video_height = 720
-        self.frame_buffer = frame_buffer
+        
+        self.frame_buffer_4 = frame_buffer_4
+        self.frame_buffer_8 = frame_buffer_8
+        self.frame_buffer_11 = frame_buffer_11
+        self.frame_buffer_16 = frame_buffer_16
+        self.default_frame_buffer = frame_buffer_4
+
     def bg_check(self):
         """check the if the button was pressed. if pressed, transfer the background image dir."""
         if self.bg_dir != None and self.bg_dir != self.ori_dir:    # 仅仅当不为空且和上一次背景路径不相同的时候，输出。
@@ -112,7 +115,7 @@ class VideoProcessThread(QThread):
         while True:
             self.bg_check()
             time_1 = time.time()
-            frame = self.frame_buffer.get()
+            frame = self.default_frame_buffer.get()
             frame = np.frombuffer(frame, dtype=np.uint8)
             cv_img = frame.reshape((self.video_height, self.video_width, 3))
             """Return the mesh image. And add the mesh image on the background image."""
@@ -145,6 +148,9 @@ class VideoProcessThread(QThread):
     def accept(self, bg_dir):
         self.bg_dir = bg_dir
 
+    @pyqtSlot(str)
+    def camera_shift(self, buffer_No):
+        exec('self.default_frame_buffer = self.frame_buffer_{}'.format(buffer_No))  
 
 class VideoThread(QThread):
     """读取需要处理的Video."""
@@ -291,15 +297,25 @@ class App(QWidget):
         # layout.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
 
         self.setLayout(layout)
-        self.frame_buffer = Queue(maxsize=5)
+        self.frame_buffer_4 = Queue(maxsize=5)
+        self.frame_buffer_8 = Queue(maxsize=5)
+        self.frame_buffer_11 = Queue(maxsize=5)
+        self.frame_buffer_16 = Queue(maxsize=5)
 
-        self.rtsp_reader = RTSPReader(self.webcam_ids[self.default_webcam_id_No], self.frame_buffer)
+        self.rtsp_reader_4 = RTSPReader(self.webcam_ids["4"], self.frame_buffer_4)
+        self.rtsp_reader_8 = RTSPReader(self.webcam_ids["8"], self.frame_buffer_8)
+        self.rtsp_reader_11 = RTSPReader(self.webcam_ids["11"], self.frame_buffer_11)
+        self.rtsp_reader_16 = RTSPReader(self.webcam_ids["16"], self.frame_buffer_16)
 
-        self.vpt = VideoProcessThread(self.display_width, self.display_height, self.bg_modify_dir, self.frame_buffer)
+        self.vpt = VideoProcessThread(self.display_width, self.display_height, self.bg_modify_dir,  \
+                    self.frame_buffer_4, self.frame_buffer_8,self.frame_buffer_11,self.frame_buffer_16)   
         self.vpt.change_pixmap_signal.connect(self.update_image_mesh)
         self.main_signal.connect(self.vpt.accept)
-        self.video_choose_signal.connect(self.rtsp_reader.url_update)
-        self.rtsp_reader.start()
+        self.video_choose_signal.connect(self.vpt.camera_shift)
+        self.rtsp_reader_4.start()
+        self.rtsp_reader_8.start()
+        self.rtsp_reader_11.start()
+        self.rtsp_reader_16.start()
         self.vpt.start()
 
         ### Others.
@@ -365,26 +381,26 @@ class App(QWidget):
     def video_1_emit(self):
         """由button跳转，选择不同的视频展示"""
         self.default_webcam_id_No = self.video_numbers[0]
-        self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
-        self.video_choose_signal.emit(self.default_webcam_id)
+        # self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
+        self.video_choose_signal.emit(self.default_webcam_id_No)
     
     def video_2_emit(self):
         """由button跳转，选择不同的视频展示"""
         self.default_webcam_id_No = self.video_numbers[1]
-        self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
-        self.video_choose_signal.emit(self.default_webcam_id)
+        # self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
+        self.video_choose_signal.emit(self.default_webcam_id_No)
     
     def video_3_emit(self):
         """由button跳转，选择不同的视频展示"""
         self.default_webcam_id_No = self.video_numbers[2]
-        self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
-        self.video_choose_signal.emit(self.default_webcam_id)
+        # self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
+        self.video_choose_signal.emit(self.default_webcam_id_No)
     
     def video_4_emit(self):
         """由button跳转，选择不同的视频展示"""
         self.default_webcam_id_No = self.video_numbers[3]
-        self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
-        self.video_choose_signal.emit(self.default_webcam_id)
+        # self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
+        self.video_choose_signal.emit(self.default_webcam_id_No)
 
 
 def bg_dirs_from_json(json_dir):
