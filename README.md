@@ -39,14 +39,19 @@ python visualization.py
 ```
 If you want to run the older versions of code, you could try to run the visualization_bak files, e.g., `visualization_bak405.py`. But I cannot guarantee that these codes will work correctly.
 
+- If there are any new background images added into the showing, please remove the bgs.json file firstly, and the main code will generate this file again.
+
 # Version Recording
 Several different version is seperately saved with different file name for convient showing. Here recoading the file name only and do not upload the corresponding files.  
 - [ x ] visualization_0414.py: add a reset button for the mesh QThread.
 - [ x ] visualization_button_layout.py: re-arrange the buttons' layout and add the button of changing webcam id.
 - [ x ] Sovling the delay accumulation and stop problem immediately.
-- [  ] Add more background images for different cameras.
-- [  ] Re-arrange the botton layout.
-- [  ] Add more images for showing on the README.md.
+- [ x ] Add more background images for different cameras. Firstly we generate a json file according to the background images.
+- ～～[ x ] Re-arrange the botton layout.～～
+- [ x ] Add more images for showing on the README.md. 
+- [  ] Solving the delay problem of switching different cameras.
+- [  ] Refine the layout of buttons.
+
 
 
 # Reference
@@ -57,5 +62,5 @@ Thanks to these below reporitories.
 
 # Authors
 If you have any questions about this demo, please contact us.  
-**Ai Wenjie** *awenji10@gmail.com*  
+**Ai Wenjie**   *awenji10@gmail.com*  
 **Li Yanchao** 

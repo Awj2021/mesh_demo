@@ -20,7 +20,8 @@ faulthandler.enable()
 import time
 import subprocess as sp
 import queue
-
+from collections import defaultdict
+import json
 
 ############################ 使用ffmpeg的方式处理视频 #######################################
 class RTSPReader(QThread):
@@ -60,9 +61,7 @@ class RTSPReader(QThread):
                 with self.frame_buffer.mutex:
                     self.frame_buffer.queue.clear()
                 self.url_flag = False
-                print("*"*60)
-                print(self.url_flag)
-            
+
             time_2 = time.time()
             print('RTSPReader fps' + str(1 / (time_2 - time_1)))
     
@@ -89,23 +88,15 @@ class VideoProcessThread(QThread):
     change_pixmap_signal = pyqtSignal(QPixmap, QPixmap)
     bg_singal = pyqtSignal(str)
 
-    def __init__(self, webcam_id, width, height, bg_dir, frame_buffer):
+    def __init__(self, width, height, bg_dir, frame_buffer):
         super().__init__()
         self._run_flag = True
         self.display_height = height
         self.display_width = width
         self.ori_dir = bg_dir
         self.bg_dir = None
-        self.webcam_id = webcam_id
-        # The original background image.
-        self.bg_image = cv2.resize(cv2.imread(self.ori_dir), (self.display_width, self.display_height))
 
-        # self.probe = ffmpeg.probe(self.webcam_id)
-        # self.cap_info = next(x for x in self.probe['streams'] if x['codec_type'] == 'video')
-        # # print("fps: {}".format(self.cap_info['r_frame_rate']))
-        # self.video_width = self.cap_info['width']           # 获取视频流的宽度
-        # self.video_height = self.cap_info['height']         # 获取视频流的高度
-        # self.frame_buffer = frame_buffer
+        self.bg_image = cv2.resize(cv2.imread(self.ori_dir), (self.display_width, self.display_height))
 
         self.video_width = 1280
         self.video_height = 720
@@ -190,48 +181,37 @@ class App(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("3D Human Digitalization")
-
-        # video ids.
-        self.webcam_ids = [
-            "rtsp://admin:1.2.3.4.5@192.168.1.4/Streaming/Channels/101",
-            "rtsp://admin:1.2.3.4.5@192.168.1.11/Streaming/Channels/101",
-            "rtsp://admin:1.2.3.4.5@192.168.1.15/Streaming/Channels/101",
-            "rtsp://admin:1.2.3.4.5@192.168.1.16/Streaming/Channels/101"
-        ]
+        self.setWindowTitle("Metaverse 3D Human Digitalization")
 
         # the size of showing window.
         self.display_width = 960
         self.display_height = 720
 
-        self.display_width_small = int(self.display_width * 0.9) // 4
-        self.display_height_small = int(self.display_height * 0.9) // 4
+        self.display_width_small = int(self.display_width * 0.95) // 4
+        self.display_height_small = int(self.display_height * 0.95) // 4
 
-        ## background的路径地址
-        self.bg_img_dirs_list = ['./bgs/cp_1.jpg', './bgs/cp_10.jpg', './bgs/cp_2.jpg', './bgs/cp_3.jpg', './bgs/cp_4.jpg', './bgs/cp_5.jpg', 
-        './bgs/cp_6.jpg', './bgs/cp_7.jpg', './bgs/cp_8.jpg', './bgs/cp_9.jpg', './bgs/ct_1.jpg', './bgs/ct_10.jpg', './bgs/ct_2.jpg', 
-        './bgs/ct_3.jpg', './bgs/ct_4.jpg', './bgs/ct_5.jpg', './bgs/ct_6.jpg', './bgs/ct_7.jpg', './bgs/ct_8.jpg', './bgs/ct_9.jpg', 
-        './bgs/sf_1.jpg', './bgs/sf_10.jpg', './bgs/sf_2.jpg', './bgs/sf_3.jpg', './bgs/sf_4.jpg', './bgs/sf_5.jpg', './bgs/sf_6.jpg', 
-        './bgs/sf_7.jpg', './bgs/sf_8.jpg', './bgs/sf_9.jpg', './bgs/st_1.jpg', './bgs/st_10.jpg', './bgs/st_2.jpg', './bgs/st_3.jpg', 
-        './bgs/st_4.jpg', './bgs/st_5.jpg', './bgs/st_6.jpg', './bgs/st_7.jpg', './bgs/st_8.jpg', './bgs/st_9.jpg']
-        
-        self.bg_img_dirs = {
-            'Cartoon':[x for x in self.bg_img_dirs_list[10:20]],
-            'Science_Fiction':[x for x in self.bg_img_dirs_list[20:30]],
-            'Steampunk': [x for x in self.bg_img_dirs_list[30:40]],
-            'Cyberpunk': [x for x in self.bg_img_dirs_list[:10]]}
-        
-        self.bg_modify_dir = './bg_1.jpg'
+        self.video_numbers = [str(x) for x in [4, 8, 11, 16]]
+        self.default_webcam_id_No = self.video_numbers[0]
+        # TODO: please check the camera_id & No.
+        self.webcam_ids = {
+            "4": "rtsp://admin:1.2.3.4.5@192.168.1.4/Streaming/Channels/101",
+            "8": "rtsp://admin:1.2.3.4.5@192.168.1.8/Streaming/Channels/101",
+            "11": "rtsp://admin:1.2.3.4.5@192.168.1.11/Streaming/Channels/101",
+            "16": "rtsp://admin:1.2.3.4.5@192.168.1.16/Streaming/Channels/101"
+        }
+
+        self.bg_img_dirs = bg_dirs_from_json(json_dir)
+
+        # print(self.bg_img_dirs)
+        self.bg_modify_dir = './bg_3.jpg'
         
         # TODO: 增加自适应图像label的功能。
         self.ori_webcam = QLabel(self)        # Original Video Stream.
         self.ori_webcam.resize(self.display_width, self.display_height)   # 左边是原始的视频，右边是处理后的视频。
-        # self.ori_webcam.setScaledContents(True)
 
         # Background + Mesh Image.
         self.video_mesh = QLabel(self)
         self.video_mesh.resize(self.display_width, self.display_height)
-        # self.video_mesh.setScaledContents(True)
 
         self.video_1 = QLabel(self)
         self.video_1.resize(self.display_width_small, self.display_height_small)
@@ -250,11 +230,6 @@ class App(QWidget):
         self.bg2 = QPushButton("Scene Transfer: Science_Fiction", self)
         self.bg3 = QPushButton("Scene Transfer:    Steampunk   ", self)
         self.bg4 = QPushButton("Scene Transfer:    Cyperpunk   ", self)
-        # button.setGeometry(200, 150, 100, 40)
-        self.bg1.resize(self.display_width_small, self.display_height_small // 2)
-        self.bg2.resize(self.display_width_small, self.display_height_small // 2)
-        self.bg3.resize(self.display_width_small, self.display_height_small // 2)
-        self.bg4.resize(self.display_width_small, self.display_height_small // 2)
 
         self.video_choose_1 = QPushButton("Camera - I", self)
         self.video_choose_2 = QPushButton("Camera - II", self)
@@ -262,36 +237,26 @@ class App(QWidget):
         self.video_choose_4 = QPushButton("Camera - IV", self)
 
         # TODO: Button Style Setting.
-        self.bg1.setIcon(QtGui.QIcon(self.bg_img_dirs['Cartoon'][0]))   # 添加路径
+        self.bg1.setIcon(QtGui.QIcon(self.bg_img_dirs['4']['Cartoon'][0]))   # 添加路径
         self.bg1.setIconSize(QSize(70, 50))
         self.bg1.setStyleSheet('QPushButton {background-color: #A3C1DA; color: blue;}')
 
-        self.bg2.setIcon(QtGui.QIcon(self.bg_img_dirs['Science_Fiction'][0]))   # 添加路径
+        self.bg2.setIcon(QtGui.QIcon(self.bg_img_dirs['4']['Science_Fiction'][0]))   # 添加路径
         self.bg2.setIconSize(QSize(70, 50))
         self.bg2.setStyleSheet('QPushButton {background-color: #A3C1DA; color: blue;}')
 
-        self.bg3.setIcon(QtGui.QIcon(self.bg_img_dirs['Steampunk'][0]))   # 添加路径
+        self.bg3.setIcon(QtGui.QIcon(self.bg_img_dirs['4']['Steampunk'][0]))   # 添加路径
         self.bg3.setIconSize(QSize(70, 50))
         self.bg3.setStyleSheet('QPushButton {background-color: #A3C1DA; color: blue;}')
 
-        
-
-        self.bg4.setIcon(QtGui.QIcon(self.bg_img_dirs['Cyberpunk'][0]))   # 添加路径
+        self.bg4.setIcon(QtGui.QIcon(self.bg_img_dirs['4']['Cyberpunk'][0]))   # 添加路径
         self.bg4.setIconSize(QSize(70, 50))
         self.bg4.setStyleSheet('QPushButton {background-color: #A3C1DA; color: blue;}')
 
-        # self.video_choose_1.setIcon(QtGui.QIcon(self.bg_img_dirs['Cyberpunk'][0]))   # 添加路径
-        # self.video_choose_1.setIconSize(QSize(50, 30))
         self.video_choose_1.setStyleSheet('QPushButton {background-color: #A3C1DA; color: blue;}')
         self.video_choose_2.setStyleSheet('QPushButton {background-color: #A3C1DA; color: blue;}')
         self.video_choose_3.setStyleSheet('QPushButton {background-color: #A3C1DA; color: blue;}')
         self.video_choose_4.setStyleSheet('QPushButton {background-color: #A3C1DA; color: blue;}')
-        
-
-        self.video_choose_1.resize(self.display_width_small, self.display_height_small // 2)
-        self.video_choose_2.resize(self.display_width_small, self.display_height_small // 2)
-        self.video_choose_3.resize(self.display_width_small, self.display_height_small // 2)
-        self.video_choose_4.resize(self.display_width_small, self.display_height_small // 2)
 
         # 触发相应的背景选择，class中设置一个函数，然后选择不同的按钮，随意赋值一个背景图像。
         self.bg1.clicked.connect(self.background_bg1_change)
@@ -314,23 +279,23 @@ class App(QWidget):
         layout.addWidget(self.video_3, 4, 2, 2, 1)
         layout.addWidget(self.video_4, 4, 3, 2, 1)
 
-        layout.addWidget(self.bg1, 4, 4, 2, 2)
-        layout.addWidget(self.bg2, 4, 6, 2, 2)
-        layout.addWidget(self.bg3, 5, 4, 2, 2)
-        layout.addWidget(self.bg4, 5, 6, 2, 2)
+        layout.addWidget(self.bg1, 4, 4, 1, 2)
+        layout.addWidget(self.bg2, 4, 6, 1, 2)
+        layout.addWidget(self.bg3, 5, 4, 1, 2)
+        layout.addWidget(self.bg4, 5, 6, 1, 2)
 
         layout.addWidget(self.video_choose_1, 6, 0, 1, 1)
         layout.addWidget(self.video_choose_2, 6, 1, 1, 1)
         layout.addWidget(self.video_choose_3, 6, 2, 1, 1)
         layout.addWidget(self.video_choose_4, 6, 3, 1, 1)
-        layout.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        # layout.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
 
         self.setLayout(layout)
         self.frame_buffer = Queue(maxsize=5)
 
-        self.rtsp_reader = RTSPReader(self.webcam_ids[0], self.frame_buffer)
+        self.rtsp_reader = RTSPReader(self.webcam_ids[self.default_webcam_id_No], self.frame_buffer)
 
-        self.vpt = VideoProcessThread(self.webcam_ids[0], self.display_width, self.display_height, self.bg_modify_dir, self.frame_buffer)
+        self.vpt = VideoProcessThread(self.display_width, self.display_height, self.bg_modify_dir, self.frame_buffer)
         self.vpt.change_pixmap_signal.connect(self.update_image_mesh)
         self.main_signal.connect(self.vpt.accept)
         self.video_choose_signal.connect(self.rtsp_reader.url_update)
@@ -338,19 +303,19 @@ class App(QWidget):
         self.vpt.start()
 
         ### Others.
-        self.thread_1 = VideoThread(self.webcam_ids[-1], self.display_width_small, self.display_height_small)         # 应该传入IP. list
+        self.thread_1 = VideoThread(self.webcam_ids["4"], self.display_width_small, self.display_height_small)         # 应该传入IP. list
         self.thread_1.change_pixmap_signal.connect(self.update_image_1)
         self.thread_1.start()
 
-        self.thread_2 = VideoThread(self.webcam_ids[1],self.display_width_small, self.display_height_small)         # 应该传入IP. list
+        self.thread_2 = VideoThread(self.webcam_ids["8"],self.display_width_small, self.display_height_small)         # 应该传入IP. list
         self.thread_2.change_pixmap_signal.connect(self.update_image_2)
         self.thread_2.start()
 
-        self.thread_3 = VideoThread(self.webcam_ids[2],self.display_width_small, self.display_height_small)         # 应该传入IP. list
+        self.thread_3 = VideoThread(self.webcam_ids["11"],self.display_width_small, self.display_height_small)         # 应该传入IP. list
         self.thread_3.change_pixmap_signal.connect(self.update_image_3)
         self.thread_3.start()
 
-        self.thread_4 = VideoThread(self.webcam_ids[3],self.display_width_small, self.display_height_small)         # 应该传入IP. list
+        self.thread_4 = VideoThread(self.webcam_ids["16"],self.display_width_small, self.display_height_small)         # 应该传入IP. list
         self.thread_4.change_pixmap_signal.connect(self.update_image_4)
         self.thread_4.start()
 
@@ -383,35 +348,92 @@ class App(QWidget):
 
     def background_bg1_change(self):
         """由button跳转, 选择不同的background"""
-        self.main_signal.emit(random.choice(self.bg_img_dirs['Cartoon']))
+        self.main_signal.emit(random.choice(self.bg_img_dirs[self.default_webcam_id_No]['Cartoon']))
 
     def background_bg2_change(self):
         """由button跳转, 选择不同的background"""
-        self.main_signal.emit(random.choice(self.bg_img_dirs['Science_Fiction']))
+        self.main_signal.emit(random.choice(self.bg_img_dirs[self.default_webcam_id_No]['Science_Fiction']))
     
     def background_bg3_change(self):
         """由button跳转, 选择不同的background"""
-        self.main_signal.emit(random.choice(self.bg_img_dirs['Steampunk']))
+        self.main_signal.emit(random.choice(self.bg_img_dirs[self.default_webcam_id_No]['Steampunk']))
 
     def background_bg4_change(self):
         """由button跳转, 选择不同的background"""
-        self.main_signal.emit(random.choice(self.bg_img_dirs['Cyberpunk']))
+        self.main_signal.emit(random.choice(self.bg_img_dirs[self.default_webcam_id_No]['Cyberpunk']))
 
     def video_1_emit(self):
         """由button跳转，选择不同的视频展示"""
-        self.video_choose_signal.emit(self.webcam_ids[0])
+        self.default_webcam_id_No = self.video_numbers[0]
+        self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
+        self.video_choose_signal.emit(self.default_webcam_id)
     
     def video_2_emit(self):
         """由button跳转，选择不同的视频展示"""
-        self.video_choose_signal.emit(self.webcam_ids[1])
+        self.default_webcam_id_No = self.video_numbers[1]
+        self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
+        self.video_choose_signal.emit(self.default_webcam_id)
     
     def video_3_emit(self):
         """由button跳转，选择不同的视频展示"""
-        self.video_choose_signal.emit(self.webcam_ids[2])
+        self.default_webcam_id_No = self.video_numbers[2]
+        self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
+        self.video_choose_signal.emit(self.default_webcam_id)
     
     def video_4_emit(self):
         """由button跳转，选择不同的视频展示"""
-        self.video_choose_signal.emit(self.webcam_ids[3])
+        self.default_webcam_id_No = self.video_numbers[3]
+        self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
+        self.video_choose_signal.emit(self.default_webcam_id)
+
+
+def bg_dirs_from_json(json_dir):
+    """
+    Transfer all these bg dirs into json file. Json file directly save to the current folder. 
+    If the json file has already exists, directly upload these json file.
+
+    Dict structure:
+    {
+        id_No1: 
+            {
+                "cartoon": [image1, image2, ..., ],    # image is the absolute path.
+                "Scientific_Fiction": []
+                ...
+            }
+        id_No2: 
+            {
+                ...
+            }
+        ...
+    }
+    """
+    assert type(json_dir) == str
+    if not os.path.exists(json_dir):
+        bgs_dict = defaultdict(dict)
+        ids_list = [str(x) for x in [4, 8, 11, 16]]
+        for id_folder in ids_list:
+            images = os.listdir(os.path.join(bg_dir, id_folder))
+            bgs_dict[id_folder] = {
+                'Cartoon':[os.path.join(bg_dir, id_folder, x) for x in images if x.startswith('ct')],
+                'Science_Fiction':[os.path.join(bg_dir, id_folder, x) for x in images if x.startswith('sf')],
+                'Steampunk': [os.path.join(bg_dir, id_folder, x) for x in images if x.startswith('sp')],
+                'Cyberpunk': [os.path.join(bg_dir, id_folder, x) for x in images if x.startswith('cp')]
+                }
+        bgs_json = json.dumps(bgs_dict)
+        with open(json_dir, 'w') as outfile:
+            outfile.write(bgs_json)
+        return bgs_json
+        
+    else:
+        print("*"*60)
+        print("Json file of background images has already exists!!!")
+        print("*"*60)
+
+        with open(json_dir, 'r') as json_file:
+            bgs_json = json.load(json_file)
+        
+        return bgs_json
+
 
 if __name__=="__main__":
     settings = romp.main.default_settings
@@ -420,6 +442,9 @@ if __name__=="__main__":
     settings.render_mesh_bg = True
     settings.bg = 'bg_1.jpg'
     romp_model = romp.ROMP(settings)
+
+    bg_dir = '/home/yanchao/Desktop/bgs_v2'
+    json_dir = '/home/yanchao/Desktop/mesh_demo/bgs.json'
 
     app = QApplication(sys.argv)
     a = App()
