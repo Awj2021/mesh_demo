@@ -25,7 +25,6 @@ import json
 
 ############################ 使用ffmpeg的方式处理视频 #######################################
 class RTSPReader(QThread):
-    # url_signal = pyqtSignal(str)
     def __init__(self, rtsp_url, frame_buffer):
         super().__init__()
         self.rtsp_url = rtsp_url
@@ -43,7 +42,6 @@ class RTSPReader(QThread):
             "-y", "pipe:1"
          ]
         self.ffmpeg_process = sp.Popen(self.ffmpeg_cmd, stdout=sp.PIPE)
-        # self.url_flag = False
 
     def run(self):
         while True:
@@ -61,29 +59,10 @@ class RTSPReader(QThread):
             time_2 = time.time()
             print('RTSPReader fps' + str(1 / (time_2 - time_1)))
     
-    # @pyqtSlot(str)
-    # def url_update(self, url_):
-    #     if url_ != self.rtsp_url:
-    #         self.rtsp_url = url_
-    #         self.ffmpeg_cmd = [
-    #             "ffmpeg",
-    #             "-rtsp_transport", "tcp",
-    #             "-fflags", "nobuffer", 
-    #             "-flags", "low_delay",
-    #             "-i", self.rtsp_url, 
-    #             "-f", "rawvideo",
-    #             "-pix_fmt", "rgb24",
-    #             "-y", "pipe:1"
-    #         ]
-    #         self.ffmpeg_process = sp.Popen(self.ffmpeg_cmd, stdout=sp.PIPE)
-    #         self.url_flag = True
-
 
 class VideoProcessThread(QThread):
     """读取需要处理的Video."""
     change_pixmap_signal = pyqtSignal(QPixmap, QPixmap)
-    bg_singal = pyqtSignal(str)
-    camera_signal = pyqtSignal(str)
 
     def __init__(self, width, height, bg_dir, frame_buffer_4, frame_buffer_8, frame_buffer_11, frame_buffer_16):
         super().__init__()
@@ -104,6 +83,9 @@ class VideoProcessThread(QThread):
         self.frame_buffer_16 = frame_buffer_16
         self.default_frame_buffer = frame_buffer_4
 
+        # self.bp = cv2.resize(cv2.imread('bp.jpg'), (0, 0), fx = 0.25, fy = 0.25)
+        # self.bp_h, self.bp_w, _ = self.bp.shape
+
     def bg_check(self):
         """check the if the button was pressed. if pressed, transfer the background image dir."""
         if self.bg_dir != None and self.bg_dir != self.ori_dir:    # 仅仅当不为空且和上一次背景路径不相同的时候，输出。
@@ -120,6 +102,11 @@ class VideoProcessThread(QThread):
             cv_img = frame.reshape((self.video_height, self.video_width, 3))
             """Return the mesh image. And add the mesh image on the background image."""
             cv_img = cv2.resize(cv_img, (self.display_width, self.display_height))
+
+            # cv_img[0:self.bp_h, 0:self.bp_w] = self.bp
+            # cv_img[0:self.bp_h, -self.bp_w:] = self.bp
+            # cv_img[-self.bp_h:, 0:self.bp_w] = self.bp
+            # cv_img[-self.bp_h:, -self.bp_w:] = self.bp
             outputs = romp_model(cv_img)
             h, w, ch = cv_img.shape
             bytes_per_line = ch * w
@@ -148,9 +135,11 @@ class VideoProcessThread(QThread):
     def accept(self, bg_dir):
         self.bg_dir = bg_dir
 
-    @pyqtSlot(str)
-    def camera_shift(self, buffer_No):
-        exec('self.default_frame_buffer = self.frame_buffer_{}'.format(buffer_No))  
+    # # TODO: 背景需要同时改变
+    @pyqtSlot(str, str)
+    def camera_shift(self, buffer_No, bg_dir):
+        exec('self.default_frame_buffer = self.frame_buffer_{}'.format(buffer_No)) 
+        self.bg_dir = bg_dir
 
 class VideoThread(QThread):
     """读取需要处理的Video."""
@@ -183,7 +172,7 @@ class VideoThread(QThread):
 
 class App(QWidget):
     main_signal = pyqtSignal(str)
-    video_choose_signal = pyqtSignal(str)
+    video_choose_signal = pyqtSignal(str, str)
 
     def __init__(self):
         super().__init__()
@@ -207,9 +196,8 @@ class App(QWidget):
         }
 
         self.bg_img_dirs = bg_dirs_from_json(json_dir)
-
-        # print(self.bg_img_dirs)
         self.bg_modify_dir = './bg_3.jpg'
+        self.style_flag = 'Cartoon'
         
         # TODO: 增加自适应图像label的功能。
         self.ori_webcam = QLabel(self)        # Original Video Stream.
@@ -244,19 +232,19 @@ class App(QWidget):
 
         # TODO: Button Style Setting.
         self.bg1.setIcon(QtGui.QIcon(self.bg_img_dirs['4']['Cartoon'][0]))   # 添加路径
-        self.bg1.setIconSize(QSize(70, 50))
+        self.bg1.setIconSize(QSize(100, 80))
         self.bg1.setStyleSheet('QPushButton {background-color: #A3C1DA; color: blue;}')
 
         self.bg2.setIcon(QtGui.QIcon(self.bg_img_dirs['4']['Science_Fiction'][0]))   # 添加路径
-        self.bg2.setIconSize(QSize(70, 50))
+        self.bg2.setIconSize(QSize(100, 80))
         self.bg2.setStyleSheet('QPushButton {background-color: #A3C1DA; color: blue;}')
 
         self.bg3.setIcon(QtGui.QIcon(self.bg_img_dirs['4']['Steampunk'][0]))   # 添加路径
-        self.bg3.setIconSize(QSize(70, 50))
+        self.bg3.setIconSize(QSize(100, 80))
         self.bg3.setStyleSheet('QPushButton {background-color: #A3C1DA; color: blue;}')
 
         self.bg4.setIcon(QtGui.QIcon(self.bg_img_dirs['4']['Cyberpunk'][0]))   # 添加路径
-        self.bg4.setIconSize(QSize(70, 50))
+        self.bg4.setIconSize(QSize(100, 80))
         self.bg4.setStyleSheet('QPushButton {background-color: #A3C1DA; color: blue;}')
 
         self.video_choose_1.setStyleSheet('QPushButton {background-color: #A3C1DA; color: blue;}')
@@ -364,43 +352,52 @@ class App(QWidget):
 
     def background_bg1_change(self):
         """由button跳转, 选择不同的background"""
-        self.main_signal.emit(random.choice(self.bg_img_dirs[self.default_webcam_id_No]['Cartoon']))
+        self.bg_modify_dir = random.choice(self.bg_img_dirs[self.default_webcam_id_No]['Cartoon'])
+        self.style_flag = 'Cartoon'
+        self.main_signal.emit(self.bg_modify_dir)
 
     def background_bg2_change(self):
         """由button跳转, 选择不同的background"""
-        self.main_signal.emit(random.choice(self.bg_img_dirs[self.default_webcam_id_No]['Science_Fiction']))
+        self.bg_modify_dir = random.choice(self.bg_img_dirs[self.default_webcam_id_No]['Science_Fiction'])
+        self.style_flag = 'Science_Fiction'
+        self.main_signal.emit(self.bg_modify_dir)
     
     def background_bg3_change(self):
         """由button跳转, 选择不同的background"""
-        self.main_signal.emit(random.choice(self.bg_img_dirs[self.default_webcam_id_No]['Steampunk']))
+        self.bg_modify_dir = random.choice(self.bg_img_dirs[self.default_webcam_id_No]['Steampunk'])
+        self.style_flag = 'Steampunk'
+        self.main_signal.emit(self.bg_modify_dir)
 
     def background_bg4_change(self):
         """由button跳转, 选择不同的background"""
-        self.main_signal.emit(random.choice(self.bg_img_dirs[self.default_webcam_id_No]['Cyberpunk']))
+        self.bg_modify_dir = random.choice(self.bg_img_dirs[self.default_webcam_id_No]['Cyberpunk'])
+        self.style_flag = 'Cyberpunk'
+        self.main_signal.emit(self.bg_modify_dir)
 
     def video_1_emit(self):
         """由button跳转，选择不同的视频展示"""
         self.default_webcam_id_No = self.video_numbers[0]
         # self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
-        self.video_choose_signal.emit(self.default_webcam_id_No)
+        self.video_choose_signal.emit(self.default_webcam_id_No, random.choice(self.bg_img_dirs[self.default_webcam_id_No][self.style_flag]))
     
     def video_2_emit(self):
         """由button跳转，选择不同的视频展示"""
         self.default_webcam_id_No = self.video_numbers[1]
         # self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
-        self.video_choose_signal.emit(self.default_webcam_id_No)
+
+        self.video_choose_signal.emit(self.default_webcam_id_No, random.choice(self.bg_img_dirs[self.default_webcam_id_No][self.style_flag]))
     
     def video_3_emit(self):
         """由button跳转，选择不同的视频展示"""
         self.default_webcam_id_No = self.video_numbers[2]
         # self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
-        self.video_choose_signal.emit(self.default_webcam_id_No)
+        self.video_choose_signal.emit(self.default_webcam_id_No, random.choice(self.bg_img_dirs[self.default_webcam_id_No][self.style_flag]))
     
     def video_4_emit(self):
         """由button跳转，选择不同的视频展示"""
         self.default_webcam_id_No = self.video_numbers[3]
         # self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
-        self.video_choose_signal.emit(self.default_webcam_id_No)
+        self.video_choose_signal.emit(self.default_webcam_id_No, random.choice(self.bg_img_dirs[self.default_webcam_id_No][self.style_flag]))
 
 
 def bg_dirs_from_json(json_dir):
