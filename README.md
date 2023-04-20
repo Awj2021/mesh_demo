@@ -49,6 +49,15 @@ imutils
 romp
 ```
 
+The detailed installation steps are listed below:
+```
+pip install --upgrade setuptools numpy cython
+conda install pytorch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 cudatoolkit=11.6 -c pytorch -c conda-forge
+sudo apt install ffmpeg 
+pip install pyqt6, imutils
+pip install ipdb
+```
+
 # Running
 The lattest code is visualization.py file.
 ```
@@ -62,7 +71,14 @@ By the way, we could directly run the shell file: `run.sh`.
 ```
 bash ./run.sh
 ```
-
+# Keypoints
+Please modify the dir of model that controls the gender of mesh.
+`https://github.com/Arthur151/ROMP/releases/tag/V2.0`
+And then change the args parameters in 
+```
+cd Desktop/mesh_demo/ROMP/simple_romp/romp/main.py
+parser.add_argument('--smpl_path', type=str, default=osp.join(osp.expanduser("~"),'.romp','SMPL_MALE.pth'), help = 'The path of smpl model file')
+```
 # Version Recording
 Several different version is seperately saved with different file name for convient showing. Here recoading the file name only and do not upload the corresponding files.  
 - [ x ] visualization_0414.py: add a reset button for the mesh QThread.
@@ -75,6 +91,7 @@ Several different version is seperately saved with different file name for convi
 - [  ] Refine the layout of buttons.
 - [ x ] Regenerate the background images.
 - [ x ] Refine the **Introduction**, combine the command in the shell file.
+- [ x ] Add the exit button when the full screen showing.
 
 
 # Reference

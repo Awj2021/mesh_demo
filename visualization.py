@@ -1,6 +1,6 @@
 from PyQt6 import QtGui
-from PyQt6.QtWidgets import QWidget, QApplication, QLabel, QVBoxLayout, QPushButton, QHBoxLayout, QGridLayout, QRadioButton
-from PyQt6.QtGui import QPixmap, QImage
+from PyQt6.QtWidgets import QWidget, QApplication, QLabel, QVBoxLayout, QPushButton, QHBoxLayout, QGridLayout, QRadioButton, QFrame, QMessageBox
+from PyQt6.QtGui import QPixmap, QImage, QFont
 import sys
 import cv2
 from PyQt6.QtCore import pyqtSignal, pyqtSlot, Qt, QThread, QSize, QMutex, QObject
@@ -22,6 +22,7 @@ import subprocess as sp
 import queue
 from collections import defaultdict
 import json
+import ipdb
 
 ############################ 使用ffmpeg的方式处理视频 #######################################
 class RTSPReader(QThread):
@@ -81,15 +82,17 @@ class VideoProcessThread(QThread):
         self.frame_buffer_8 = frame_buffer_8
         self.frame_buffer_11 = frame_buffer_11
         self.frame_buffer_16 = frame_buffer_16
-        self.default_frame_buffer = frame_buffer_4
+        self.default_frame_buffer = frame_buffer_16
 
         # self.bp = cv2.resize(cv2.imread('bp.jpg'), (0, 0), fx = 0.25, fy = 0.25)
+        # self.bp = cv2.cvtColor(self.bp, cv2.COLOR_BGR2RGB)
         # self.bp_h, self.bp_w, _ = self.bp.shape
 
     def bg_check(self):
         """check the if the button was pressed. if pressed, transfer the background image dir."""
         if self.bg_dir != None and self.bg_dir != self.ori_dir:    # 仅仅当不为空且和上一次背景路径不相同的时候，输出。
             self.bg_image = cv2.resize(cv2.imread(self.bg_dir), (self.display_width, self.display_height))
+            self.bg_image = cv2.cvtColor(self.bg_image, cv2.COLOR_BGR2RGB)
             self.ori_dir = self.bg_dir
             print("==== Reloading the background. ====")
 
@@ -113,17 +116,24 @@ class VideoProcessThread(QThread):
 
             #### 处理背景图像 ###
             #### 首先要进行抠图，
-            cv_img_mesh = cv2.cvtColor(cv2.resize(outputs['rendered_image'],(self.display_width, self.display_height)), cv2.COLOR_BGR2RGB)
-            mesh_grey =  cv2.cvtColor(cv_img_mesh, cv2.COLOR_BGR2GRAY)              # mesh部分为白色，背景为黑色。
-            ret, mesh_mask = cv2.threshold(mesh_grey, 1, 255, cv2.THRESH_BINARY)    # mesh部分为白色，背景为黑色
-            maskInv = cv2.bitwise_not(mesh_mask)
+            # cv_img_mesh = cv2.cvtColor(cv2.resize(outputs['rendered_image'],(self.display_width, self.display_height)), cv2.COLOR_BGR2RGB)
+            if outputs['rendered_image'] == []:
+                # print('test')
+                p_ori_convert = QtGui.QImage(cv_img.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
+                p_mesh_convert = QtGui.QImage(self.bg_image.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)           
+            else:
+                render_image = outputs['rendered_image']
+                cv_img_mesh = cv2.resize(render_image,(self.display_width, self.display_height))
+                mesh_grey =  cv2.cvtColor(cv_img_mesh, cv2.COLOR_RGB2GRAY)              # mesh部分为白色，背景为黑色。
+                ret, mesh_mask = cv2.threshold(mesh_grey, 1, 255, cv2.THRESH_BINARY)    # mesh部分为白色，背景为黑色
+                maskInv = cv2.bitwise_not(mesh_mask)
 
-            mesh_bg = cv2.bitwise_and(self.bg_image, self.bg_image, mask = maskInv)             # 掩码.
-            mesh_fg = cv2.bitwise_and(cv_img_mesh, cv_img_mesh, mask = mesh_mask)               
+                mesh_bg = cv2.bitwise_and(self.bg_image, self.bg_image, mask = maskInv)             # 掩码.
+                mesh_fg = cv2.bitwise_and(cv_img_mesh, cv_img_mesh, mask = mesh_mask)               
 
-            combine_mesh = cv2.add(mesh_bg, mesh_fg)
-            p_ori_convert = QtGui.QImage(cv_img.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
-            p_mesh_convert = QtGui.QImage(combine_mesh.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
+                combine_mesh = cv2.add(mesh_bg, mesh_fg)
+                p_ori_convert = QtGui.QImage(cv_img.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
+                p_mesh_convert = QtGui.QImage(combine_mesh.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
             p_ori = p_ori_convert.scaled(self.display_width, self.display_height, Qt.AspectRatioMode.KeepAspectRatio)
             p_mesh = p_mesh_convert.scaled(self.display_width, self.display_height, Qt.AspectRatioMode.KeepAspectRatio)
             self.change_pixmap_signal.emit(QPixmap.fromImage(p_ori), QPixmap.fromImage(p_mesh))
@@ -179,21 +189,34 @@ class App(QWidget):
         self.setWindowTitle("Metaverse 3D Human Digitalization")
 
         # the size of showing window.
-        self.display_width = 960
-        self.display_height = 720
+        self.display_width = 940
+        self.display_height = 650
 
         self.display_width_small = int(self.display_width * 0.95) // 4
         self.display_height_small = int(self.display_height * 0.95) // 4
 
-        self.video_numbers = [str(x) for x in [4, 8, 11, 16]]
+        self.video_numbers = [str(x) for x in [16, 4, 8, 11]]
         self.default_webcam_id_No = self.video_numbers[0]
         # TODO: please check the camera_id & No.
         self.webcam_ids = {
+            "16": "rtsp://admin:1.2.3.4.5@192.168.1.16/Streaming/Channels/101",
             "4": "rtsp://admin:1.2.3.4.5@192.168.1.4/Streaming/Channels/101",
             "8": "rtsp://admin:1.2.3.4.5@192.168.1.8/Streaming/Channels/101",
-            "11": "rtsp://admin:1.2.3.4.5@192.168.1.11/Streaming/Channels/101",
-            "16": "rtsp://admin:1.2.3.4.5@192.168.1.16/Streaming/Channels/101"
+            "11": "rtsp://admin:1.2.3.4.5@192.168.1.11/Streaming/Channels/101"
         }
+
+        # TODO: 
+        self.title_label = QLabel(self)
+        self.title_label.resize(self.display_width * 2, self.display_height_small // 2)
+        self.title_label.setText("Metaverse 3D Human Digitalization")
+        self.setFont(QFont('Arual', 28, QFont.Weight.Bold))
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # self.end_label = QLabel(self)
+        # self.end_label.resize(self.display_width * 2, self.display_height_small // 4)
+        # self.end_label.setText("SUTD Computer Vision & Learning Group (VLG)")
+        # self.setFont(QFont('Arual', 8, QFont.Weight.Bold))
+        # self.end_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
         self.bg_img_dirs = bg_dirs_from_json(json_dir)
         self.bg_modify_dir = './bg_3.jpg'
@@ -230,8 +253,17 @@ class App(QWidget):
         self.video_choose_3 = QPushButton("Camera - III", self)
         self.video_choose_4 = QPushButton("Camera - IV", self)
 
+        self.exit_button = QPushButton("EXIT", self)
+
+        self.video_choose_1.resize(self.display_width_small, self.display_height_small * 2)
+        self.video_choose_2.resize(self.display_width_small, self.display_height_small * 2)
+        self.video_choose_3.resize(self.display_width_small, self.display_height_small * 2)
+        self.video_choose_4.resize(self.display_width_small, self.display_height_small * 2)
+        
+
         # TODO: Button Style Setting.
-        self.bg1.setIcon(QtGui.QIcon(self.bg_img_dirs['4']['Cartoon'][0]))   # 添加路径
+        print(self.bg_img_dirs)
+        self.bg1.setIcon(QtGui.QIcon(self.bg_img_dirs['8']['Cartoon'][0]))   # 添加路径
         self.bg1.setIconSize(QSize(100, 80))
         self.bg1.setStyleSheet('QPushButton {background-color: #A3C1DA; color: blue;}')
 
@@ -251,12 +283,15 @@ class App(QWidget):
         self.video_choose_2.setStyleSheet('QPushButton {background-color: #A3C1DA; color: blue;}')
         self.video_choose_3.setStyleSheet('QPushButton {background-color: #A3C1DA; color: blue;}')
         self.video_choose_4.setStyleSheet('QPushButton {background-color: #A3C1DA; color: blue;}')
+        self.exit_button.setStyleSheet('QPushButton {background-color: #A3C1DA; color: red;}')
+
 
         # 触发相应的背景选择，class中设置一个函数，然后选择不同的按钮，随意赋值一个背景图像。
         self.bg1.clicked.connect(self.background_bg1_change)
         self.bg2.clicked.connect(self.background_bg2_change)
         self.bg3.clicked.connect(self.background_bg3_change)
         self.bg4.clicked.connect(self.background_bg4_change)
+        self.exit_button.clicked.connect(self.exit_app)
 
         self.video_choose_1.clicked.connect(self.video_1_emit)
         self.video_choose_2.clicked.connect(self.video_2_emit)
@@ -264,24 +299,27 @@ class App(QWidget):
         self.video_choose_4.clicked.connect(self.video_4_emit)
 
         layout = QGridLayout()
+        layout.addWidget(self.title_label, 0, 0, 1, 8)
 
-        layout.addWidget(self.ori_webcam, 0, 0, 4, 4)
-        layout.addWidget(self.video_mesh, 0, 4, 4, 4)
+        layout.addWidget(self.ori_webcam, 1, 0, 4, 4)
+        layout.addWidget(self.video_mesh, 1, 4, 4, 4)
 
-        layout.addWidget(self.video_1, 4, 0, 2, 1)
-        layout.addWidget(self.video_2, 4, 1, 2, 1)
-        layout.addWidget(self.video_3, 4, 2, 2, 1)
-        layout.addWidget(self.video_4, 4, 3, 2, 1)
+        layout.addWidget(self.video_1, 5, 0, 2, 1)
+        layout.addWidget(self.video_2, 5, 1, 2, 1)
+        layout.addWidget(self.video_3, 5, 2, 2, 1)
+        layout.addWidget(self.video_4, 5, 3, 2, 1)
 
-        layout.addWidget(self.bg1, 4, 4, 1, 2)
-        layout.addWidget(self.bg2, 4, 6, 1, 2)
-        layout.addWidget(self.bg3, 5, 4, 1, 2)
-        layout.addWidget(self.bg4, 5, 6, 1, 2)
+        layout.addWidget(self.bg1, 5, 4, 1, 2)
+        layout.addWidget(self.bg2, 5, 6, 1, 2)
+        layout.addWidget(self.bg3, 6, 4, 1, 2)
+        layout.addWidget(self.bg4, 6, 6, 1, 2)
 
-        layout.addWidget(self.video_choose_1, 6, 0, 1, 1)
-        layout.addWidget(self.video_choose_2, 6, 1, 1, 1)
-        layout.addWidget(self.video_choose_3, 6, 2, 1, 1)
-        layout.addWidget(self.video_choose_4, 6, 3, 1, 1)
+        layout.addWidget(self.video_choose_1, 7, 0, 1, 1)
+        layout.addWidget(self.video_choose_2, 7, 1, 1, 1)
+        layout.addWidget(self.video_choose_3, 7, 2, 1, 1)
+        layout.addWidget(self.video_choose_4, 7, 3, 1, 1)
+        layout.addWidget(self.exit_button, 7, 4, 1, 4)
+        # layout.addWidget(self.end_label, 8, 0, 1, 8)
         # layout.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
 
         self.setLayout(layout)
@@ -307,22 +345,23 @@ class App(QWidget):
         self.vpt.start()
 
         ### Others.
-        self.thread_1 = VideoThread(self.webcam_ids["4"], self.display_width_small, self.display_height_small)         # 应该传入IP. list
+        self.thread_1 = VideoThread(self.webcam_ids["16"], self.display_width_small, self.display_height_small)         # 应该传入IP. list
         self.thread_1.change_pixmap_signal.connect(self.update_image_1)
         self.thread_1.start()
 
-        self.thread_2 = VideoThread(self.webcam_ids["8"],self.display_width_small, self.display_height_small)         # 应该传入IP. list
+        self.thread_2 = VideoThread(self.webcam_ids["4"],self.display_width_small, self.display_height_small)         # 应该传入IP. list
         self.thread_2.change_pixmap_signal.connect(self.update_image_2)
         self.thread_2.start()
 
-        self.thread_3 = VideoThread(self.webcam_ids["11"],self.display_width_small, self.display_height_small)         # 应该传入IP. list
+        self.thread_3 = VideoThread(self.webcam_ids["8"],self.display_width_small, self.display_height_small)         # 应该传入IP. list
         self.thread_3.change_pixmap_signal.connect(self.update_image_3)
         self.thread_3.start()
 
-        self.thread_4 = VideoThread(self.webcam_ids["16"],self.display_width_small, self.display_height_small)         # 应该传入IP. list
+        self.thread_4 = VideoThread(self.webcam_ids["11"],self.display_width_small, self.display_height_small)         # 应该传入IP. list
         self.thread_4.change_pixmap_signal.connect(self.update_image_4)
         self.thread_4.start()
 
+        self.showFullScreen()
 
     @pyqtSlot(QPixmap, QPixmap)
     def update_image_mesh(self, cv_img_ori, cv_img_mesh):
@@ -398,6 +437,11 @@ class App(QWidget):
         self.default_webcam_id_No = self.video_numbers[3]
         # self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
         self.video_choose_signal.emit(self.default_webcam_id_No, random.choice(self.bg_img_dirs[self.default_webcam_id_No][self.style_flag]))
+    
+    def exit_app(self):
+        """Exit from the application."""
+        app = QApplication.instance()
+        app.quit()
 
 
 def bg_dirs_from_json(json_dir):
@@ -423,15 +467,23 @@ def bg_dirs_from_json(json_dir):
     assert type(json_dir) == str
     if not os.path.exists(json_dir):
         bgs_dict = defaultdict(dict)
-        ids_list = [str(x) for x in [4, 8, 11, 16]]
+        ids_list = [str(x) for x in [16, 4, 8, 11]]
         for id_folder in ids_list:
-            images = os.listdir(os.path.join(bg_dir, id_folder))
-            bgs_dict[id_folder] = {
-                'Cartoon':[os.path.join(bg_dir, id_folder, x) for x in images if x.startswith('ct')],
-                'Science_Fiction':[os.path.join(bg_dir, id_folder, x) for x in images if x.startswith('sf')],
-                'Steampunk': [os.path.join(bg_dir, id_folder, x) for x in images if x.startswith('sp')],
-                'Cyberpunk': [os.path.join(bg_dir, id_folder, x) for x in images if x.startswith('cp')]
-                }
+            for i, bg_dir in enumerate(bg_dirs):
+                images = os.listdir(os.path.join(bg_dir, id_folder))
+                if i == 0:
+                    bgs_dict[id_folder] = {
+                    'Cartoon':[os.path.join(bg_dir, id_folder, x) for x in images if x.startswith('ct')],
+                    'Science_Fiction':[os.path.join(bg_dir, id_folder, x) for x in images if x.startswith('sf')],
+                    'Steampunk': [os.path.join(bg_dir, id_folder, x) for x in images if x.startswith('sp')],
+                    'Cyberpunk': [os.path.join(bg_dir, id_folder, x) for x in images if x.startswith('cp')]
+                    }
+                else:
+                    bgs_dict[id_folder]['Cartoon'].extend([os.path.join(bg_dir, id_folder, x) for x in images if x.startswith('ct')])
+                    bgs_dict[id_folder]['Science_Fiction'].extend([os.path.join(bg_dir, id_folder, x) for x in images if x.startswith('sf')])
+                    bgs_dict[id_folder]['Steampunk'].extend([os.path.join(bg_dir, id_folder, x) for x in images if x.startswith('sp')])
+                    bgs_dict[id_folder]['Cyberpunk'].extend([os.path.join(bg_dir, id_folder, x) for x in images if x.startswith('cp')])
+
         bgs_json = json.dumps(bgs_dict)
         with open(json_dir, 'w') as outfile:
             outfile.write(bgs_json)
@@ -444,6 +496,7 @@ def bg_dirs_from_json(json_dir):
 
         with open(json_dir, 'r') as json_file:
             bgs_json = json.load(json_file)
+        time.sleep(1)
         
         return bgs_json
 
@@ -455,9 +508,8 @@ if __name__=="__main__":
     settings.render_mesh_bg = True
     settings.bg = 'bg_1.jpg'
     romp_model = romp.ROMP(settings)
-
-    bg_dir = '/home/yanchao/Desktop/bgs_v2'
-    json_dir = '/home/yanchao/Desktop/mesh_demo/bgs.json'
+    bg_dirs = ['//home/lyc/Desktop/mesh_demo/bgs_v2', '/home/lyc/Desktop/mesh_demo/bgs_v3']
+    json_dir = '/home/lyc/Desktop/mesh_demo/bgs.json'
 
     app = QApplication(sys.argv)
     a = App()
