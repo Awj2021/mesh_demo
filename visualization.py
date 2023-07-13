@@ -72,6 +72,7 @@ class VideoProcessThread(QThread):
         self.display_width = width
         self.ori_dir = bg_dir
         self.bg_dir = None
+        self.avatar_index = 4
 
         self.bg_image = cv2.resize(cv2.imread(self.ori_dir), (self.display_width, self.display_height))
 
@@ -110,19 +111,31 @@ class VideoProcessThread(QThread):
             # cv_img[0:self.bp_h, -self.bp_w:] = self.bp
             # cv_img[-self.bp_h:, 0:self.bp_w] = self.bp
             # cv_img[-self.bp_h:, -self.bp_w:] = self.bp
-            outputs = romp_model(cv_img)
+            time_str = str(time.time())
+            # cv2.imwrite('/home/lyc/Desktop/mesh_demo/temp/rgb_' + time_str + '.jpg', image)
+            # TODO: here, the cv_img是一个图像；
+            outputs = romp_model(cv_img, time_str, avatar_index=self.avatar_index)
+
             h, w, ch = cv_img.shape
             bytes_per_line = ch * w
 
             #### 处理背景图像 ###
             #### 首先要进行抠图，
             # cv_img_mesh = cv2.cvtColor(cv2.resize(outputs['rendered_image'],(self.display_width, self.display_height)), cv2.COLOR_BGR2RGB)
+            print(outputs.keys())
+            print("=="*50)
             if outputs['rendered_image'] == []:
                 # print('test')
                 p_ori_convert = QtGui.QImage(cv_img.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)
                 p_mesh_convert = QtGui.QImage(self.bg_image.data, w, h, bytes_per_line, QtGui.QImage.Format.Format_RGB888)           
             else:
+                # TODO: 这个outputs是什么？输出来看看
                 render_image = outputs['rendered_image']
+                # time_str = str(time.time())
+                # cv2.imwrite('temp/' + time_str + '_rgb.jpg', cv_img)
+                # cv2.imwrite('temp/' + time_str + '_mesh.jpg', render_image)
+                
+
                 cv_img_mesh = cv2.resize(render_image,(self.display_width, self.display_height))
                 mesh_grey =  cv2.cvtColor(cv_img_mesh, cv2.COLOR_RGB2GRAY)              # mesh部分为白色，背景为黑色。
                 ret, mesh_mask = cv2.threshold(mesh_grey, 1, 255, cv2.THRESH_BINARY)    # mesh部分为白色，背景为黑色
@@ -150,6 +163,10 @@ class VideoProcessThread(QThread):
     def camera_shift(self, buffer_No, bg_dir):
         exec('self.default_frame_buffer = self.frame_buffer_{}'.format(buffer_No)) 
         self.bg_dir = bg_dir
+
+    @pyqtSlot(int)
+    def avatar_shift(self, avatar_index):
+        self.avatar_index = avatar_index
 
 class VideoThread(QThread):
     """读取需要处理的Video."""
@@ -183,6 +200,7 @@ class VideoThread(QThread):
 class App(QWidget):
     main_signal = pyqtSignal(str)
     video_choose_signal = pyqtSignal(str, str)
+    avatar_signal = pyqtSignal(int)
 
     def __init__(self):
         super().__init__()
@@ -255,11 +273,14 @@ class App(QWidget):
 
         self.exit_button = QPushButton("EXIT", self)
 
+        self.avatar_button = QPushButton("Avatar", self)
+
         self.video_choose_1.resize(self.display_width_small, self.display_height_small * 2)
         self.video_choose_2.resize(self.display_width_small, self.display_height_small * 2)
         self.video_choose_3.resize(self.display_width_small, self.display_height_small * 2)
         self.video_choose_4.resize(self.display_width_small, self.display_height_small * 2)
         
+
 
         # TODO: Button Style Setting.
         print(self.bg_img_dirs)
@@ -298,8 +319,11 @@ class App(QWidget):
         self.video_choose_3.clicked.connect(self.video_3_emit)
         self.video_choose_4.clicked.connect(self.video_4_emit)
 
+        self.avatar_button.clicked.connect(self.avatar_emit)
+
         layout = QGridLayout()
-        layout.addWidget(self.title_label, 0, 0, 1, 8)
+        layout.addWidget(self.title_label, 0, 1, 1, 6)
+        layout.addWidget(self.avatar_button, 0, 7, 1, 1)
 
         layout.addWidget(self.ori_webcam, 1, 0, 4, 4)
         layout.addWidget(self.video_mesh, 1, 4, 4, 4)
@@ -338,6 +362,7 @@ class App(QWidget):
         self.vpt.change_pixmap_signal.connect(self.update_image_mesh)
         self.main_signal.connect(self.vpt.accept)
         self.video_choose_signal.connect(self.vpt.camera_shift)
+        self.avatar_signal.connect(self.vpt.avatar_shift)
         self.rtsp_reader_4.start()
         self.rtsp_reader_8.start()
         self.rtsp_reader_11.start()
@@ -438,6 +463,11 @@ class App(QWidget):
         # self.default_webcam_id = self.webcam_ids[self.default_webcam_id_No]
         self.video_choose_signal.emit(self.default_webcam_id_No, random.choice(self.bg_img_dirs[self.default_webcam_id_No][self.style_flag]))
     
+    def avatar_emit(self):
+        options = [2, 3, 4]
+        options.remove(self.vpt.avatar_index)
+        self.avatar_signal.emit(random.choice(options))
+
     def exit_app(self):
         """Exit from the application."""
         app = QApplication.instance()
@@ -500,10 +530,14 @@ def bg_dirs_from_json(json_dir):
         
         return bgs_json
 
-
+# dict_keys(['cam', 'global_orient', 'body_pose', 'smpl_betas', 'smpl_thetas', 'center_preds', 'center_confs', 'cam_trans', 
+# 'verts', 'joints', 'pj2d_org', 'rendered_image', 'rendered_image_bg'])
 if __name__=="__main__":
     settings = romp.main.default_settings
     settings.calc_smpl = True
+    # FIXME: render_mesh_only or render_mesh_bg.
+    # settings.temporal_optimize = True
+    # settings.show_largest = True
     settings.render_mesh_only = True
     settings.render_mesh_bg = True
     settings.bg = 'bg_1.jpg'
