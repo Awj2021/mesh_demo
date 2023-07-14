@@ -42,11 +42,12 @@ We strongly suggest that installing **ROMP** with source code, i.e., by `make *.
 
 Please make sure these necessory packages should be installed: (including in the environment.yml)
 ```
+gcc (used for PyQt6)
 PyQt6
 cv2
 ffmpeg
 imutils
-romp
+romp (using the recommended method in the ROMP.) python setup.py install.
 ```
 
 The detailed installation steps are listed below:
@@ -81,17 +82,18 @@ parser.add_argument('--smpl_path', type=str, default=osp.join(osp.expanduser("~"
 ```
 # Version Recording
 Several different version is seperately saved with different file name for convient showing. Here recoading the file name only and do not upload the corresponding files.  
-- [ x ] visualization_0414.py: add a reset button for the mesh QThread.
-- [ x ] visualization_button_layout.py: re-arrange the buttons' layout and add the button of changing webcam id.
-- [ x ] Sovling the delay accumulation and stop problem immediately.
-- [ x ] Add more background images for different cameras. Firstly we generate a json file according to the background images.
+- ~~[ x ] visualization_0414.py: add a reset button for the mesh QThread.~~
+- ~~[ x ] visualization_button_layout.py: re-arrange the buttons' layout and add the button of changing webcam id.~~
+- ~~[ x ] Sovling the delay accumulation and stop problem immediately.~~
+- ~~[ x ] Add more background images for different cameras. Firstly we generate a json file according to the background images.~~
 - ~~[ x ] Re-arrange the botton layout.~~
 - [ x ] Add more images for showing on the README.md. 
-- [ x ] Solving the delay problem of switching different cameras.
-- [  ] Refine the layout of buttons.
-- [ x ] Regenerate the background images.
-- [ x ] Refine the **Introduction**, combine the command in the shell file.
-- [ x ] Add the exit button when the full screen showing.
+- ~~[ x ] Solving the delay problem of switching different cameras.~~
+- ~~[  ] Refine the layout of buttons.~~
+- ~~[ x ] Regenerate the background images.~~
+- ~~[ x ] Refine the **Introduction**, combine the command in the shell file.~~
+- ~~[ x ] Add the exit button when the full screen showing.~~
+- [ ] Solving the overlapped problem when using the setting of temporal_optimize==true. We want to use the track_ids in the multi-Avator generation.
 
 
 # Reference
@@ -103,4 +105,4 @@ Thanks to these below reporitories.
 # Authors
 If you have any questions about this demo, please contact us.  
 **Ai Wenjie**   *awenji10@gmail.com*  
-**Li Yanchao** 
+**Li Yanchao**  *l.ych@outlook.com*
